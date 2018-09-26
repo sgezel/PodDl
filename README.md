@@ -12,6 +12,6 @@ Subfolders will be created in the output folder for each podcast downloaded. Fil
 
 ## Parameters:
 
- - /I : Path to file containing rss feed urls. This can be either a flat file containing links on each line, or an [.opml](https://en.wikipedia.org/wiki/OPML) file.
- - /O: Specify an output directory. Will create subfolders for each podcast
- - /C: Number of concurrent downloads
+ - /I : Path to file containing rss feed urls. This can be either a flat file containing links on each line, or an [.opml](https://en.wikipedia.org/wiki/OPML) file. Default is a file called rss.txt in the current working directory.
+ - /O: Specify an output directory. Will create subfolders for each podcast Default is current working directory.
+ - /C: Number of concurrent downloads Default is 5 connections.
