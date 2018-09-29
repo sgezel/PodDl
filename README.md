@@ -6,6 +6,8 @@ PodDl is a console program written in c#. It will process a list of rss feeds fr
 
 Subfolders will be created in the output folder for each podcast downloaded. Files will be save in the format: **\<year\>.\<month>.\<day>-\<episode_title>.mp3**
 
+![alt text](screenshot.png "Screenshot")
+
 ## Usage examples
 - PodDl.exe podcast_list.txt
 - PodDl.exe /I:"podcast_export.opml" /O:"D:/Podcasts/" /C:"10"
