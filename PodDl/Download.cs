@@ -19,5 +19,17 @@ namespace PodDl
         public long Bytestotal { get; set; }
 
         public string Filename { get; set; }
+
+        public string Season { get; set; }
+        public string Episode { get; set; }
+
+        public string Image { get; set; }
+
+        public int Year { get; set; }
+        //Fill ID3 Tags
+        public string Author { get; set; }
+        public string Description { get; set; }
+        
+
     }
 }

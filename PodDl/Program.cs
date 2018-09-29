@@ -8,6 +8,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Xml.Linq;
+using System.Xml.XPath;
 
 namespace PodDl
 {
@@ -53,11 +55,8 @@ namespace PodDl
                 Log(ex.Message);
                 Environment.Exit(0);
             }
-            
 
             ServicePointManager.DefaultConnectionLimit = connections;
-
-            //input = "podcasts.opml";
 
             if(input.ToLower().Contains(".opml"))
             {
@@ -105,10 +104,37 @@ namespace PodDl
 
             var podcast_title = res.Title.Text;
 
+            string extensionNamespaceUri = "http://www.itunes.com/dtds/podcast-1.0.dtd";
+            SyndicationElementExtension extension = res.ElementExtensions.Where<SyndicationElementExtension>(x => x.OuterNamespace == extensionNamespaceUri).FirstOrDefault();
+            XPathNavigator dataNavigator = new XPathDocument(extension.GetReader()).CreateNavigator();
+
+            XmlNamespaceManager resolver = new XmlNamespaceManager(dataNavigator.NameTable);
+            resolver.AddNamespace("itunes", extensionNamespaceUri);
+            
+            XPathNavigator authorNavigator = dataNavigator.SelectSingleNode("itunes:author", resolver);
+
+            var author = authorNavigator != null ? authorNavigator.Value : String.Empty;
+            
             Log($"Podcast {podcast_title} found containing {res.Items.Count()} episodes.");
 
             foreach (var item in res.Items)
             {
+                SyndicationElementExtension itemExtension = item.ElementExtensions.Where<SyndicationElementExtension>(x => x.OuterNamespace == extensionNamespaceUri).FirstOrDefault();
+                XPathNavigator itemDataNavigator = new XPathDocument(itemExtension.GetReader()).CreateNavigator();
+
+                XmlNamespaceManager itemResolver = new XmlNamespaceManager(itemDataNavigator.NameTable);
+                itemResolver.AddNamespace("itunes", extensionNamespaceUri);
+
+                XPathNavigator seasonNavigator = itemDataNavigator.SelectSingleNode("itunes:season", itemResolver);
+                XPathNavigator episodeNavigator = itemDataNavigator.SelectSingleNode("itunes:episode", itemResolver);
+                XPathNavigator summaryNavigator = itemDataNavigator.SelectSingleNode("itunes:summary", itemResolver);
+                XPathNavigator imageNavigator = itemDataNavigator.SelectSingleNode("itunes:image", itemResolver);
+
+                var season = seasonNavigator != null ? seasonNavigator.Value : String.Empty;
+                var episode = episodeNavigator != null ? episodeNavigator.Value : String.Empty;
+                var summary = summaryNavigator != null ? summaryNavigator.Value : String.Empty;
+                var image = imageNavigator != null ? imageNavigator.Value : String.Empty;
+
                 var date = item.PublishDate.ToString("yyyy.MM.dd");
                 var title = MakeValidFileName(item.Title.Text).Trim();
 
@@ -121,6 +147,11 @@ namespace PodDl
                     Log($"Directory does not exist, creating.");
                     Directory.CreateDirectory(newpath);
                 }
+
+                var season_string = "";
+
+                if (!string.IsNullOrEmpty(season) && !string.IsNullOrEmpty(episode))
+                    season_string = $"-S{season}E{episode}";
 
                 if (link != null)
                 {
@@ -137,7 +168,13 @@ namespace PodDl
                             Bytescompleted = 0L,
                             Percentcomplete = 0,
                             Bytestotal = 0L,
-                            Filename = filename
+                            Filename = filename,
+                            Episode = episode,
+                            Season = season,
+                            Author = author,
+                            Description = summary,
+                            Image = image,
+                            Year = item.PublishDate.Year
                         };
 
                         Log($"Adding {podcast_title}: {item.Title.Text} to the download list");
@@ -177,6 +214,14 @@ namespace PodDl
                         {
                             lock (ongoing)
                             {
+                                try
+                                {
+
+                                    SetID3Tags(dl);
+                                } catch(Exception ex)
+                                {
+                                    Log($"Error setting id3 tags for {dl.Filename}:{Environment.NewLine}{ex.Message}");
+                                }
                                 ongoing.Remove(dl);
                             }
                             Download();
@@ -196,10 +241,45 @@ namespace PodDl
                         {
                             Log($"Error downloading from {dl.Url.AbsoluteUri}: {e.Message}");
                         }
-                    }
-                    
+                    }                    
                 }
             }
+
+            if (ongoing.Count == 0)
+                Log("Downloads have been completed");
+        }
+
+        private static void SetID3Tags(Download dl)
+        {
+            TagLib.File f = TagLib.File.Create(dl.Filename);
+            f.Tag.Album = dl.Podcast;
+            f.Tag.Performers = new string[]{ dl.Author };
+            f.Tag.Year = (uint)dl.Year;
+            f.Tag.Genres = new string[]{ "Podcast" }; // Genre podcast
+            f.Tag.Comment = dl.Description;
+            f.Tag.Title = dl.Title;
+            if(!string.IsNullOrEmpty(dl.Image))
+            {
+                string path = string.Format(@"{0}temp\{1}.jpg", "", Guid.NewGuid().ToString());
+                byte[] imageBytes;
+                using (WebClient client = new WebClient())
+                {
+                    imageBytes = client.DownloadData(dl.Image);
+                }
+
+                TagLib.Id3v2.AttachedPictureFrame cover = new TagLib.Id3v2.AttachedPictureFrame
+                {
+                    Type = TagLib.PictureType.FrontCover,
+                    Description = "Cover",
+                    MimeType = System.Net.Mime.MediaTypeNames.Image.Jpeg,
+                    Data = imageBytes,
+                    TextEncoding = TagLib.StringType.UTF16
+                };
+
+                f.Tag.Pictures = new TagLib.IPicture[] { cover };
+            }
+            
+            f.Save();
         }
 
         private static void ShowDlProgress()
@@ -207,13 +287,25 @@ namespace PodDl
             printcounter++;
             lock (ongoing)
             {
-                if (printcounter % 100 == 0)
+                if (printcounter % 500 == 0)
                 {
                     Console.Clear();
+
                     Log($"Downloading to {path}", false);
                     foreach (var dl in ongoing)
                     {
-                        Log($"Downloading {dl.Podcast}: {dl.Title} -> {((dl.Bytescompleted / 1024f) / 1024f).ToString("#0.##")}mb of {((dl.Bytestotal / 1024f) / 1024f).ToString("#0.##")}mb ({dl.Percentcomplete}%)", false);
+                        var progress = "";
+
+                        for(var i = 0; i < Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete/10)))); i++)
+                        {
+                            progress += "▓";
+                        }
+                        for (var i = 0; i < 10 - Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete / 10))));i++)
+                        {
+                            progress += "░";
+                        }
+                        
+                        Log($"Downloading {dl.Podcast}: {dl.Title} -> {progress} {((dl.Bytescompleted / 1024f) / 1024f).ToString("#0.##")}MB of {((dl.Bytestotal / 1024f) / 1024f).ToString("#0.##")}MB", false);
                     }
 
                     if(ongoing.Count == 0)
