@@ -27,6 +27,9 @@ namespace PodDl
 
         static void Main(string[] args)
         {
+#if DEBUG
+            input = @"rss.txt";
+#endif
             PodDlParamsObject parobj = new PodDlParamsObject(args);
             try
             {
@@ -53,7 +56,9 @@ namespace PodDl
             catch(Exception ex)
             {
                 Log(ex.Message);
+#if RELEASE
                 Environment.Exit(0);
+#endif
             }
 
             ServicePointManager.DefaultConnectionLimit = connections;
@@ -99,9 +104,7 @@ namespace PodDl
 
             for (var i = 0; i < connections; i++)
                 Download();
-
-            Console.ReadLine();
-        }
+            }
 
         private static void ProcessRSS(string url)
         {
@@ -128,15 +131,24 @@ namespace PodDl
             foreach (var item in res.Items)
             {
                 SyndicationElementExtension itemExtension = item.ElementExtensions.Where<SyndicationElementExtension>(x => x.OuterNamespace == extensionNamespaceUri).FirstOrDefault();
-                XPathNavigator itemDataNavigator = new XPathDocument(itemExtension.GetReader()).CreateNavigator();
+                XPathNavigator seasonNavigator = null;
+                XPathNavigator episodeNavigator = null;
+                XPathNavigator summaryNavigator = null;
+                XPathNavigator imageNavigator = null;
 
-                XmlNamespaceManager itemResolver = new XmlNamespaceManager(itemDataNavigator.NameTable);
-                itemResolver.AddNamespace("itunes", extensionNamespaceUri);
+                if (itemExtension != null)
+                {
+                    XPathNavigator itemDataNavigator = new XPathDocument(itemExtension.GetReader()).CreateNavigator();
 
-                XPathNavigator seasonNavigator = itemDataNavigator.SelectSingleNode("itunes:season", itemResolver);
-                XPathNavigator episodeNavigator = itemDataNavigator.SelectSingleNode("itunes:episode", itemResolver);
-                XPathNavigator summaryNavigator = itemDataNavigator.SelectSingleNode("itunes:summary", itemResolver);
-                XPathNavigator imageNavigator = itemDataNavigator.SelectSingleNode("itunes:image", itemResolver);
+                    XmlNamespaceManager itemResolver = new XmlNamespaceManager(itemDataNavigator.NameTable);
+                    itemResolver.AddNamespace("itunes", extensionNamespaceUri);
+
+                    seasonNavigator = itemDataNavigator.SelectSingleNode("itunes:season", itemResolver);
+                    episodeNavigator = itemDataNavigator.SelectSingleNode("itunes:episode", itemResolver);
+                    summaryNavigator = itemDataNavigator.SelectSingleNode("itunes:summary", itemResolver);
+                    imageNavigator = itemDataNavigator.SelectSingleNode("itunes:image", itemResolver);
+                }
+              
 
                 var season = seasonNavigator != null ? seasonNavigator.Value : String.Empty;
                 var episode = episodeNavigator != null ? episodeNavigator.Value : String.Empty;
