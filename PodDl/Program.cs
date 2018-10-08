@@ -17,6 +17,7 @@ namespace PodDl
     {
         private static string path = @"";
         private static string input = @"rss.txt";
+        private static bool generatedocumentation = true;
 
         private static int connections = 5;
 
@@ -25,10 +26,15 @@ namespace PodDl
         private static List<Download> todo = new List<Download>();
         private static List<Download> ongoing = new List<Download>();
 
+        private static Documentation doc = new Documentation();
+
         static void Main(string[] args)
         {
+
+
+
 #if DEBUG
-            input = @"rss.txt";
+            input = @"Z:\audio drama\rss.txt";
 #endif
             PodDlParamsObject parobj = new PodDlParamsObject(args);
             try
@@ -45,15 +51,14 @@ namespace PodDl
                 }
 
                 path = parobj.OutputPath ?? path;
-                connections = parobj.Connections == 0 ?  connections : parobj.Connections;
+                connections = parobj.Connections == 0 ? connections : parobj.Connections;
                 input = parobj.InputPath ?? input;
+                generatedocumentation = parobj.Documentation;
 
                 if (path != "" && path[path.Length - 1] != '\\')
                     path += @"\";
-
-
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log(ex.Message);
 #if RELEASE
@@ -62,17 +67,17 @@ namespace PodDl
             }
 
             ServicePointManager.DefaultConnectionLimit = connections;
+            doc.Podcasts = new List<Podcast>();
 
-            if(input.ToLower().Contains(".opml"))
+            if (input.ToLower().Contains(".opml"))
             {
-
                 using (XmlReader reader = XmlReader.Create(input))
                 {
                     while (reader.Read())
                     {
-                        if(reader.Name == "outline")
+                        if (reader.Name == "outline")
                         {
-                            if(reader.GetAttribute("type") == "rss" && !string.IsNullOrEmpty(reader.GetAttribute("xmlUrl")))
+                            if (reader.GetAttribute("type") == "rss" && !string.IsNullOrEmpty(reader.GetAttribute("xmlUrl")))
                             {
                                 String xmlUrl = reader.GetAttribute("xmlUrl");
                                 try
@@ -104,7 +109,30 @@ namespace PodDl
 
             for (var i = 0; i < connections; i++)
                 Download();
+
+            if (generatedocumentation)
+                GenerateDocumentation();
+
+            Console.ReadLine();
+        }
+
+
+        private static void GenerateDocumentation()
+        {
+            doc.Podcasts = doc.Podcasts.OrderBy(p => p.Title).ToList();
+
+            var index = doc.GenerateIndex();
+            File.WriteAllText($"{path}index.html", index);
+
+            if (!Directory.Exists($"{path}_documentation"))
+                Directory.CreateDirectory($"{path}_documentation");
+
+            foreach (var podcast in doc.Podcasts)
+            {
+                var details = doc.GeneratePodcastDetails(podcast);
+                File.WriteAllText($"{path}_documentation/{podcast.DetailFileName}.html", details);
             }
+        }
 
         private static void ProcessRSS(string url)
         {
@@ -121,12 +149,23 @@ namespace PodDl
 
             XmlNamespaceManager resolver = new XmlNamespaceManager(dataNavigator.NameTable);
             resolver.AddNamespace("itunes", extensionNamespaceUri);
-            
+
             XPathNavigator authorNavigator = dataNavigator.SelectSingleNode("itunes:author", resolver);
 
             var author = authorNavigator != null ? authorNavigator.Value : String.Empty;
-            
+
             Log($"Podcast {podcast_title} found containing {res.Items.Count()} episodes.");
+
+            var podcast = new Podcast()
+            {
+                Title = podcast_title,
+                Author = author,
+                Description = res.Description.Text,
+                Image = res.ImageUrl != null ? res.ImageUrl.AbsoluteUri : $"https://via.placeholder.com/500x300/cccccc/000000?text={podcast_title.Replace(" ", "+")}",
+                Episodes = new List<Episode>(),
+                Url = "#",
+                DetailFileName = MakeValidFileName(podcast_title)
+            };
 
             foreach (var item in res.Items)
             {
@@ -135,7 +174,7 @@ namespace PodDl
                 XPathNavigator episodeNavigator = null;
                 XPathNavigator summaryNavigator = null;
                 XPathNavigator imageNavigator = null;
-
+                XPathNavigator durationNavigator = null;
                 if (itemExtension != null)
                 {
                     XPathNavigator itemDataNavigator = new XPathDocument(itemExtension.GetReader()).CreateNavigator();
@@ -147,13 +186,14 @@ namespace PodDl
                     episodeNavigator = itemDataNavigator.SelectSingleNode("itunes:episode", itemResolver);
                     summaryNavigator = itemDataNavigator.SelectSingleNode("itunes:summary", itemResolver);
                     imageNavigator = itemDataNavigator.SelectSingleNode("itunes:image", itemResolver);
+                    durationNavigator = itemDataNavigator.SelectSingleNode("itunes:duration", itemResolver);
                 }
-              
 
                 var season = seasonNavigator != null ? seasonNavigator.Value : String.Empty;
                 var episode = episodeNavigator != null ? episodeNavigator.Value : String.Empty;
                 var summary = summaryNavigator != null ? summaryNavigator.Value : String.Empty;
-                var image = imageNavigator != null ? imageNavigator.Value : String.Empty;
+                var image = imageNavigator != null ? imageNavigator.Value : podcast.Image;
+                var duration = durationNavigator != null ? durationNavigator.Value : String.Empty;
 
                 var date = item.PublishDate.ToString("yyyy.MM.dd");
                 var title = MakeValidFileName(item.Title.Text).Trim();
@@ -176,6 +216,15 @@ namespace PodDl
                 if (link != null)
                 {
                     var filename = $@"{newpath}\{date}-{title}.mp3";
+
+                    podcast.Episodes.Add(new Episode()
+                    {
+                        Description = summary,
+                        Title = item.Title.Text,
+                        Duration = duration,
+                        Image = (string.IsNullOrEmpty(image) ? res.ImageUrl == null ? image : res.ImageUrl.AbsoluteUri : image),
+                        Url = $"..\\{ MakeValidFileName(podcast_title)}\\{date}-{title}.mp3"
+                    });
 
                     if (!File.Exists(filename))
                     {
@@ -206,7 +255,7 @@ namespace PodDl
                     }
                 }
             }
-
+            doc.Podcasts.Add(podcast);
             r.Close();
         }
 
@@ -216,7 +265,7 @@ namespace PodDl
             {
                 using (var client = new WebClient())
                 {
-                    if(todo.Count > 0)
+                    if (todo.Count > 0)
                     {
                         var dl = todo[0];
                         todo.RemoveAt(0);
@@ -236,9 +285,9 @@ namespace PodDl
                             {
                                 try
                                 {
-
                                     SetID3Tags(dl);
-                                } catch(Exception ex)
+                                }
+                                catch (Exception ex)
                                 {
                                     Log($"Error setting id3 tags for {dl.Filename}:{Environment.NewLine}{ex.Message}");
                                 }
@@ -257,11 +306,11 @@ namespace PodDl
                         {
                             client.DownloadFileAsync(dl.Url, dl.Filename);
                         }
-                        catch(Exception e)
+                        catch (Exception e)
                         {
                             Log($"Error downloading from {dl.Url.AbsoluteUri}: {e.Message}");
                         }
-                    }                    
+                    }
                 }
             }
 
@@ -277,12 +326,12 @@ namespace PodDl
         {
             TagLib.File f = TagLib.File.Create(dl.Filename);
             f.Tag.Album = dl.Podcast;
-            f.Tag.Performers = new string[]{ dl.Author };
+            f.Tag.Performers = new string[] { dl.Author };
             f.Tag.Year = (uint)dl.Year;
-            f.Tag.Genres = new string[]{ "Podcast" }; // Genre podcast
+            f.Tag.Genres = new string[] { "Podcast" }; // Genre podcast
             f.Tag.Comment = dl.Description;
             f.Tag.Title = dl.Title;
-            if(!string.IsNullOrEmpty(dl.Image))
+            if (!string.IsNullOrEmpty(dl.Image))
             {
                 string path = string.Format(@"{0}temp\{1}.jpg", "", Guid.NewGuid().ToString());
                 byte[] imageBytes;
@@ -302,7 +351,7 @@ namespace PodDl
 
                 f.Tag.Pictures = new TagLib.IPicture[] { cover };
             }
-            
+
             f.Save();
         }
 
@@ -311,7 +360,7 @@ namespace PodDl
             printcounter++;
             lock (ongoing)
             {
-                if (printcounter % 500 == 0)
+                if (printcounter % 400 == 0)
                 {
                     Console.Clear();
 
@@ -320,19 +369,19 @@ namespace PodDl
                     {
                         var progress = "";
 
-                        for(var i = 0; i < Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete/10)))); i++)
+                        for (var i = 0; i < Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete / 10)))); i++)
                         {
                             progress += "▓";
                         }
-                        for (var i = 0; i < 10 - Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete / 10))));i++)
+                        for (var i = 0; i < 10 - Convert.ToInt32((Math.Floor((decimal)(dl.Percentcomplete / 10)))); i++)
                         {
                             progress += "░";
                         }
-                        
+
                         Log($"Downloading {dl.Podcast}: {dl.Title} -> {progress} {((dl.Bytescompleted / 1024f) / 1024f).ToString("#0.##")}MB of {((dl.Bytestotal / 1024f) / 1024f).ToString("#0.##")}MB", false);
                     }
 
-                    if(ongoing.Count == 0)
+                    if (ongoing.Count == 0)
                     {
                         Log("Downloads complete.");
                     }

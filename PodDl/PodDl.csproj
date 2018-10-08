@@ -64,7 +64,10 @@
     <GenerateManifests>true</GenerateManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignManifests>true</SignManifests>
+    <SignManifests>false</SignManifests>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>PodDl.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="ConsoleCommon">
@@ -88,6 +91,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Documentation.cs" />
     <Compile Include="Download.cs" />
     <Compile Include="PodDlParamsObject.cs" />
     <Compile Include="Program.cs" />
@@ -98,6 +102,11 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Documentation\episode.html" />
+    <EmbeddedResource Include="Documentation\episodes.html" />
+    <EmbeddedResource Include="Documentation\index.html" />
+    <EmbeddedResource Include="Documentation\podcast.html" />
+    <Content Include="ConsoleCommon.dll" />
     <Content Include="podcast-.ico" />
   </ItemGroup>
   <ItemGroup>

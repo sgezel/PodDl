@@ -29,6 +29,9 @@ namespace PodDl
         [SwitchHelpText("# of Consecutive download connections")]
         public int Connections { get; set; }
 
+        [Switch("D", false, 2, false)]
+        [SwitchHelpText("Generate documentation html files")]
+        public bool Documentation { get; set; }
 
         public override Dictionary<Func<bool>, string> GetParamExceptionDictionary()
         {
