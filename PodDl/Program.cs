@@ -69,7 +69,15 @@ namespace PodDl
                         {
                             if(reader.GetAttribute("type") == "rss" && !string.IsNullOrEmpty(reader.GetAttribute("xmlUrl")))
                             {
-                                ProcessRSS(reader.GetAttribute("xmlUrl"));
+                                String xmlUrl = reader.GetAttribute("xmlUrl");
+                                try
+                                {
+                                    ProcessRSS(xmlUrl);
+                                }
+                                catch (Exception e)
+                                {
+                                    Log($"Failed reading {xmlUrl}\n{e}");
+                                }
                             }
                         }
                     }
