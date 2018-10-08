@@ -246,7 +246,11 @@ namespace PodDl
             }
 
             if (ongoing.Count == 0)
+            {
                 Log("Downloads have been completed");
+
+                Environment.Exit(0);
+            }
         }
 
         private static void SetID3Tags(Download dl)
