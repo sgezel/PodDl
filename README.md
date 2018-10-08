@@ -20,5 +20,7 @@ Subfolders will be created in the output folder for each podcast downloaded. Fil
  - /D: Generate HTML document with Podcast info and episode lists
 
 ## Documentation example:
+#### Index:
 ![alt text](doc1.png "Documentation index")
+#### Episode List:
 ![alt text](doc2.png "Episode list")
