@@ -91,6 +91,8 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="PodDlDownloadArchive.cs" />
+    <Compile Include="PodDlXmlReader.cs" />
     <Compile Include="Documentation.cs" />
     <Compile Include="Download.cs" />
     <Compile Include="PodDlParamsObject.cs" />
