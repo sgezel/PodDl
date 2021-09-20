@@ -18,6 +18,9 @@ namespace PodDl
         private static string path = @"";
         private static string input = @"rss.txt";
         private static bool generatedocumentation = true;
+        private static bool skipDownload = false;
+        private static string downloadArchive = @"";
+        private static PodDlDownloadArchive archive = null;
 
         private static int connections = 5;
 
@@ -30,12 +33,6 @@ namespace PodDl
 
         static void Main(string[] args)
         {
-
-
-
-#if DEBUG
-            input = @"Z:\audio drama\rss.txt";
-#endif
             PodDlParamsObject parobj = new PodDlParamsObject(args);
             try
             {
@@ -54,6 +51,12 @@ namespace PodDl
                 connections = parobj.Connections == 0 ? connections : parobj.Connections;
                 input = parobj.InputPath ?? input;
                 generatedocumentation = parobj.Documentation;
+                skipDownload = parobj.SkipFileDownload;
+                downloadArchive = parobj.DownloadArchive;
+                if (!String.IsNullOrEmpty(downloadArchive))
+                {
+                    archive = new PodDlDownloadArchive(downloadArchive);
+                }
 
                 if (path != "" && path[path.Length - 1] != '\\')
                     path += @"\";
@@ -61,9 +64,7 @@ namespace PodDl
             catch (Exception ex)
             {
                 Log(ex.Message);
-#if RELEASE
                 Environment.Exit(0);
-#endif
             }
 
             ServicePointManager.DefaultConnectionLimit = connections;
@@ -80,13 +81,15 @@ namespace PodDl
                             if (reader.GetAttribute("type") == "rss" && !string.IsNullOrEmpty(reader.GetAttribute("xmlUrl")))
                             {
                                 String xmlUrl = reader.GetAttribute("xmlUrl");
+                                String podcastTitle = reader.GetAttribute("text");
+
                                 try
                                 {
-                                    ProcessRSS(xmlUrl);
+                                    ProcessRSS(xmlUrl, podcastTitle);
                                 }
                                 catch (Exception e)
                                 {
-                                    Log($"Failed reading {xmlUrl}\n{e}");
+                                    Log($"Failed reading {xmlUrl} for {podcastTitle}\n{e}");
                                 }
                             }
                         }
@@ -103,6 +106,13 @@ namespace PodDl
                 }
 
                 file.Close();
+            }
+
+
+            if (skipDownload)
+            {
+                Log($"Skipping all downloads");
+                return;
             }
 
             Log($"Number of connections: {connections}");
@@ -134,14 +144,38 @@ namespace PodDl
             }
         }
 
-        private static void ProcessRSS(string url)
+        private static void ProcessRSS(String url, String podcastTitle = "")
         {
             Log($"Processing url: {url}");
 
-            var r = XmlReader.Create(url);
-            var res = SyndicationFeed.Load(r);
+            // Use a custom PodDlXmlReader to avoid RSS XML issues
+            SyndicationFeed res = null;
+            try
+            {
+                using (var r = new PodDlXmlReader(url))
+                {
+                    res = SyndicationFeed.Load(r);
+                }
+            }
+            catch (Exception)
+            {
+                string xml;
 
-            var podcast_title = res.Title.Text;
+                using (WebClient webClient = new WebClient())
+                {
+                    xml = Encoding.UTF8.GetString(webClient.DownloadData(url));
+                }
+
+                xml = xml.Replace("length=\"None\"", "length=\"0\"");
+                byte[] bytes = System.Text.UTF8Encoding.ASCII.GetBytes(xml);
+
+                using (XmlReader r = XmlReader.Create(new MemoryStream(bytes)))
+                {
+                    res = SyndicationFeed.Load(r);
+                }
+            }
+
+            podcastTitle = !String.IsNullOrEmpty(podcastTitle) ? podcastTitle : res.Title.Text;
 
             string extensionNamespaceUri = "http://www.itunes.com/dtds/podcast-1.0.dtd";
             SyndicationElementExtension extension = res.ElementExtensions.Where<SyndicationElementExtension>(x => x.OuterNamespace == extensionNamespaceUri).FirstOrDefault();
@@ -154,17 +188,17 @@ namespace PodDl
 
             var author = authorNavigator != null ? authorNavigator.Value : String.Empty;
 
-            Log($"Podcast {podcast_title} found containing {res.Items.Count()} episodes.");
+            Log($"Podcast {podcastTitle} found containing {res.Items.Count()} episodes.");
 
             var podcast = new Podcast()
             {
-                Title = podcast_title,
+                Title = podcastTitle,
                 Author = author,
                 Description = res.Description.Text,
-                Image = res.ImageUrl != null ? res.ImageUrl.AbsoluteUri : $"https://via.placeholder.com/500x300/cccccc/000000?text={podcast_title.Replace(" ", "+")}",
+                Image = res.ImageUrl != null ? res.ImageUrl.AbsoluteUri : $"https://via.placeholder.com/500x300/cccccc/000000?text={podcastTitle.Replace(" ", "+")}",
                 Episodes = new List<Episode>(),
                 Url = "#",
-                DetailFileName = MakeValidFileName(podcast_title)
+                DetailFileName = MakeValidFileName(podcastTitle)
             };
 
             foreach (var item in res.Items)
@@ -175,6 +209,7 @@ namespace PodDl
                 XPathNavigator summaryNavigator = null;
                 XPathNavigator imageNavigator = null;
                 XPathNavigator durationNavigator = null;
+
                 if (itemExtension != null)
                 {
                     XPathNavigator itemDataNavigator = new XPathDocument(itemExtension.GetReader()).CreateNavigator();
@@ -194,13 +229,14 @@ namespace PodDl
                 var summary = summaryNavigator != null ? summaryNavigator.Value : String.Empty;
                 var image = imageNavigator != null ? imageNavigator.Value : podcast.Image;
                 var duration = durationNavigator != null ? durationNavigator.Value : String.Empty;
+                var guid = item.Id;
 
                 var date = item.PublishDate.ToString("yyyy.MM.dd");
                 var title = MakeValidFileName(item.Title.Text).Trim();
 
                 var link = item.Links.Where(l => l.RelationshipType == "enclosure").FirstOrDefault();
 
-                var newpath = path + MakeValidFileName(podcast_title);
+                var newpath = path + MakeValidFileName(podcastTitle);
 
                 if (!Directory.Exists($"{newpath}"))
                 {
@@ -223,15 +259,19 @@ namespace PodDl
                         Title = item.Title.Text,
                         Duration = duration,
                         Image = (string.IsNullOrEmpty(image) ? res.ImageUrl == null ? image : res.ImageUrl.AbsoluteUri : image),
-                        Url = $"..\\{ MakeValidFileName(podcast_title)}\\{date}-{title}.mp3"
+                        Url = $"..\\{ MakeValidFileName(podcastTitle)}\\{date}-{title}.mp3"
                     });
 
-                    if (!File.Exists(filename))
+                    if (archive != null && archive.HasId(podcastTitle, item.Id))
+                    {
+                        Log($"{date}-{title}.mp3 already exists (by GUID), skipping.");
+                    }
+                    else if (!File.Exists(filename))
                     {
                         var dl = new Download
                         {
                             Id = item.Id,
-                            Podcast = podcast_title,
+                            Podcast = podcastTitle,
                             Title = item.Title.Text,
                             Url = link.Uri,
                             Bytescompleted = 0L,
@@ -246,17 +286,20 @@ namespace PodDl
                             Year = item.PublishDate.Year
                         };
 
-                        Log($"Adding {podcast_title}: {item.Title.Text} to the download list");
+                        Log($"Adding {podcastTitle}: {item.Title.Text} to the download list");
                         todo.Add(dl);
                     }
                     else
                     {
-                        Log($"{date}-{title}.mp3 already existst, skipping.");
+                        Log($"{date}-{title}.mp3 already exists, skipping.");
+
+                        // found it on the file system
+                        archive.Add(podcastTitle, guid);
+                        archive.Save();
                     }
                 }
             }
             doc.Podcasts.Add(podcast);
-            r.Close();
         }
 
         private static void Download()
@@ -291,7 +334,15 @@ namespace PodDl
                                 {
                                     Log($"Error setting id3 tags for {dl.Filename}:{Environment.NewLine}{ex.Message}");
                                 }
+
                                 ongoing.Remove(dl);
+
+                                // Save to Download Archive
+                                if (archive != null)
+                                {
+                                    archive.Add(dl.Podcast, dl.Id);
+                                    archive.Save();
+                                }
                             }
                             Download();
                         };

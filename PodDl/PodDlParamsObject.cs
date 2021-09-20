@@ -33,6 +33,14 @@ namespace PodDl
         [SwitchHelpText("Generate documentation html files")]
         public bool Documentation { get; set; }
 
+        [Switch("S", false, 3, false)]
+        [SwitchHelpText("Skip file download")]
+        public bool SkipFileDownload { get; set; }
+
+        [Switch("A", false, 4, false)]
+        [SwitchHelpText("Download archive file")]
+        public string DownloadArchive { get; set; }
+
         public override Dictionary<Func<bool>, string> GetParamExceptionDictionary()
         {
             Dictionary<Func<bool>, string> _exceptionChecks = new Dictionary<Func<bool>, string>();
